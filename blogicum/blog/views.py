@@ -10,9 +10,9 @@ from .models import Category, Comment, Post
 User = get_user_model()
 
 
-def get_page_obj(request, post_list):
+def paginate_posts(request, post_list):
     paginator = Paginator(post_list, POSTS_BY_PAGE)
-    return paginator.get_page(request.GET.get('page'))
+    return paginator.get_page(request.GET.get('page', 1))
 
 
 def get_post(request, post_id):
@@ -32,7 +32,7 @@ def index(request):
     post_list = Post.objects.with_related().published()
 
     context = {
-        'page_obj': get_page_obj(request, post_list),
+        'page_obj': paginate_posts(request, post_list),
     }
     return render(request, 'blog/index.html', context)
 
@@ -63,7 +63,7 @@ def category_posts(request, category_slug):
 
     context = {
         'category': category,
-        'page_obj': get_page_obj(request, post_list),
+        'page_obj': paginate_posts(request, post_list),
     }
     return render(request, 'blog/category.html', context)
 
@@ -77,43 +77,53 @@ def profile(request, username):
 
     context = {
         'profile': profile_user,
-        'page_obj': get_page_obj(request, post_list),
+        'page_obj': paginate_posts(request, post_list),
     }
     return render(request, 'blog/profile.html', context)
 
 
 @login_required
 def edit_profile(request):
-    if request.method == 'POST':
-        form = ProfileForm(request.POST, instance=request.user)
-        if form.is_valid():
-            form.save()
-            return redirect(
-                'blog:profile',
-                username=request.user.username,
-            )
-    else:
-        form = ProfileForm(instance=request.user)
+    form = ProfileForm(
+        request.POST or None,
+        instance=request.user,
+    )
 
-    return render(request, 'blog/user.html', {'form': form})
+    if not form.is_valid():
+        return render(
+            request,
+            'blog/user.html',
+            {'form': form},
+        )
+
+    form.save()
+    return redirect(
+        'blog:profile',
+        username=request.user.username,
+    )
 
 
 @login_required
 def create_post(request):
-    if request.method == 'POST':
-        form = PostForm(request.POST, request.FILES)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.author = request.user
-            post.save()
-            return redirect(
-                'blog:profile',
-                username=request.user.username,
-            )
-    else:
-        form = PostForm()
+    form = PostForm(
+        request.POST or None,
+        request.FILES or None,
+    )
 
-    return render(request, 'blog/create.html', {'form': form})
+    if not form.is_valid():
+        return render(
+            request,
+            'blog/create.html',
+            {'form': form},
+        )
+
+    post = form.save(commit=False)
+    post.author = request.user
+    post.save()
+    return redirect(
+        'blog:profile',
+        username=request.user.username,
+    )
 
 
 @login_required
@@ -123,19 +133,21 @@ def edit_post(request, post_id):
     if request.user != post.author:
         return redirect('blog:post_detail', id=post.pk)
 
-    if request.method == 'POST':
-        form = PostForm(
-            request.POST,
-            request.FILES,
-            instance=post,
-        )
-        if form.is_valid():
-            form.save()
-            return redirect('blog:post_detail', id=post.pk)
-    else:
-        form = PostForm(instance=post)
+    form = PostForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=post,
+    )
 
-    return render(request, 'blog/create.html', {'form': form})
+    if not form.is_valid():
+        return render(
+            request,
+            'blog/create.html',
+            {'form': form},
+        )
+
+    form.save()
+    return redirect('blog:post_detail', id=post.pk)
 
 
 @login_required
@@ -160,15 +172,12 @@ def delete_post(request, post_id):
 def add_comment(request, post_id):
     post = get_post(request, post_id)
 
-    if request.method == 'POST':
-        form = CommentForm(request.POST)
-        if form.is_valid():
-            comment = form.save(commit=False)
-            comment.post = post
-            comment.author = request.user
-            comment.save()
-            return redirect('blog:post_detail', id=post.pk)
+    if request.method != 'POST':
+        return redirect('blog:post_detail', id=post.pk)
 
+    form = CommentForm(request.POST or None)
+
+    if not form.is_valid():
         context = {
             'post': post,
             'form': form,
@@ -176,6 +185,10 @@ def add_comment(request, post_id):
         }
         return render(request, 'blog/detail.html', context)
 
+    comment = form.save(commit=False)
+    comment.post = post
+    comment.author = request.user
+    comment.save()
     return redirect('blog:post_detail', id=post.pk)
 
 
@@ -190,19 +203,20 @@ def edit_comment(request, post_id, comment_id):
     if request.user != comment.author:
         return redirect('blog:post_detail', id=post_id)
 
-    if request.method == 'POST':
-        form = CommentForm(request.POST, instance=comment)
-        if form.is_valid():
-            form.save()
-            return redirect('blog:post_detail', id=post_id)
-    else:
-        form = CommentForm(instance=comment)
+    form = CommentForm(
+        request.POST or None,
+        instance=comment,
+    )
 
-    context = {
-        'comment': comment,
-        'form': form,
-    }
-    return render(request, 'blog/comment.html', context)
+    if not form.is_valid():
+        context = {
+            'comment': comment,
+            'form': form,
+        }
+        return render(request, 'blog/comment.html', context)
+
+    form.save()
+    return redirect('blog:post_detail', id=post_id)
 
 
 @login_required
